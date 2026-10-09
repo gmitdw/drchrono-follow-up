@@ -24,3 +24,9 @@ button{background:#17191d;color:white;border-radius:12px;min-height:46px;font-we
 
 /* v5: cream cards; retain the approved saturated background and controls. */
 .activity,.activity.open,.activity.completed,.activity.cleared{background:#fff8e8}
+
+/* Keep empty desktop cards consistent with the accepted cream activity cards. */
+.empty{background:#fff8e8;color:#281c00}
+:root{color-scheme:light}
+
+.filters .hint{color:#e3d7fa}

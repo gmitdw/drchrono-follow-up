@@ -77,12 +77,21 @@ async function refresh() {
   info = await api("/status");
   $("pair-panel").hidden = true;
   $("workspace").hidden = false;
-  $("environment").hidden = !info.development;
+  $("environment").hidden = false;
+  $("environment").textContent = `${info.development ? "Development" : "Production"} \xB7 v7`;
   $("development-notice").hidden = !info.development;
   $("dashboard-tools").hidden = !info.local;
   $("sign-out").hidden = info.local;
   document.title = `Drchrono Follow Up${info.development ? " Dev" : ""}`;
-  $("last-sync").textContent = info.last_sync ? `Last refreshed from DrChrono ${new Date(info.last_sync).toLocaleString()}${info.last_range ? ` \xB7 Visit dates ${info.last_range.start} to ${info.last_range.end}` : ""}` : "No visits loaded yet. Refresh from DrChrono to begin.";
+  if (info.local) {
+    $("phone-app-link").href = info.development ? "https://gmitdw.github.io/drchrono-follow-up-development/" : "https://gmitdw.github.io/drchrono-follow-up/";
+    $("field-access-link").href = info.development ? "/local/drchrono/authorize?return_to=/follow-up/" : "/api/follow-up/authorize";
+    const ready2 = info.connection?.field_scope_present;
+    $("field-access-link").hidden = !!ready2;
+    $("connection-status").textContent = ready2 ? "Custom-field permission is present. Import filtered visits from Live Claims Feed." : "Custom-field access needs settings:read. Existing Coding Claims authorization is kept separate and unchanged.";
+    if (!ready2) $("dashboard-tools").open = true;
+  }
+  $("last-sync").textContent = info.last_sync ? `Last refreshed from DrChrono ${new Date(info.last_sync).toLocaleString()}${info.last_range ? ` \xB7 Visit dates ${info.last_range.start} to ${info.last_range.end}` : ""}` : info.saved_activity_count ? `Showing saved ${info.development ? "Development" : "Production"} activities.` : `No visits imported into ${info.development ? "Development" : "Production"} yet.`;
   fields = (await api("/fields")).fields;
   if (selected === null) {
     let saved = null;
@@ -123,8 +132,8 @@ function renderItems() {
   $("result-count").textContent = `${total} ${total === 1 ? "activity" : "activities"}`;
   $("load-more").hidden = items.length >= total;
   if (!items.length) {
-    const empty = element("div", void 0, "empty");
-    empty.append(element("h3", fields.length ? "No matching activities" : "Your follow-up list starts here"), element("p", fields.length ? "Choose an activity, change the status filter, or refresh visits from DrChrono." : "Use the dashboard to load DRJ__ fields and visit directions."));
+    const empty = element("div", void 0, "empty"), uninitialized = info.saved_activity_count === 0;
+    empty.append(element("h3", uninitialized ? `No visits imported into ${info.development ? "Development" : "Production"} yet` : "No matching activities"), element("p", uninitialized ? "Use Send to Follow Up on filtered Live Claims Feed results. Development and Production keep separate lists." : "Choose an activity, change the status filter, or clear your search."));
     list.append(empty);
     return;
   }
@@ -226,7 +235,7 @@ function renderItems() {
     list.append(card);
   });
 }
-var $, info, fields, items, total, selected, loading, requestNumber, drafts, key, displayActivity, searchTimer, today, earlier, iso;
+var $, info, fields, items, total, selected, requestNumber, drafts, key, displayActivity, searchTimer;
 var init_ui = __esm({
   "src/ui.js"() {
     "use strict";
@@ -236,7 +245,6 @@ var init_ui = __esm({
     items = [];
     total = 0;
     selected = null;
-    loading = false;
     requestNumber = 0;
     drafts = /* @__PURE__ */ new Map();
     key = (item) => `${item.appointment_id}:${item.field_id}`;
@@ -283,50 +291,6 @@ var init_ui = __esm({
         notify(e.message, true);
       }
     });
-    $("sync-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (loading) return;
-      if (drafts.size) {
-        notify("Save your notes before refreshing from DrChrono.", true);
-        return;
-      }
-      loading = true;
-      $("sync-button").disabled = true;
-      $("sync-button").textContent = "Refreshing\u2026";
-      notify("Reading visit activities from DrChrono. A large date range may take several minutes.");
-      try {
-        const result = await api("/sync", "POST", { start: $("start-date").value, end: $("end-date").value });
-        await refresh();
-        notify(`Refreshed ${result.activities} activities across ${result.fields} follow-up fields.`);
-      } catch (e) {
-        notify(e.message, true);
-      } finally {
-        loading = false;
-        $("sync-button").disabled = false;
-        $("sync-button").textContent = "Refresh from DrChrono";
-      }
-    });
-    $("create-code").addEventListener("click", async () => {
-      try {
-        const result = await api("/pairing-code", "POST", {});
-        $("connection-code").textContent = result.code;
-        setTimeout(() => {
-          $("connection-code").textContent = "Code expired. Create a new code.";
-        }, 3e5);
-      } catch (e) {
-        notify(e.message, true);
-      }
-    });
-    $("revoke").addEventListener("click", async () => {
-      if (!confirm("Disconnect all paired phones?")) return;
-      try {
-        await api("/revoke-devices", "POST", {});
-        notify("All phones disconnected.");
-        $("connection-code").textContent = "";
-      } catch (e) {
-        notify(e.message, true);
-      }
-    });
     $("sign-out").addEventListener("click", async () => {
       if (drafts.size && !confirm("Discard unsaved notes and disconnect?")) return;
       try {
@@ -347,12 +311,6 @@ var init_ui = __esm({
       if (event.persisted) refresh().catch((e) => notify(e.message, true));
     });
     window.addEventListener("offline", () => notify("You are offline. Reconnect before saving notes or completing activities.", true));
-    today = /* @__PURE__ */ new Date();
-    earlier = /* @__PURE__ */ new Date();
-    earlier.setDate(today.getDate() - 89);
-    iso = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    $("start-date").value = iso(earlier);
-    $("end-date").value = iso(today);
     if (window.matchMedia("(max-width:760px)").matches) $("filters-details").open = false;
     refresh().catch((e) => notify(e.message, true));
     $("new-follow-up").addEventListener("click", () => {
@@ -8897,8 +8855,8 @@ var CookieStorage = class {
   }
 };
 function getCookieExpirationTime(cookieLifeDays) {
-  const today2 = /* @__PURE__ */ new Date();
-  const expr = new Date(today2.getTime() + cookieLifeDays * COOKIE_LIFE_MULTIPLIER);
+  const today = /* @__PURE__ */ new Date();
+  const expr = new Date(today.getTime() + cookieLifeDays * COOKIE_LIFE_MULTIPLIER);
   return expr.toUTCString();
 }
 
@@ -15743,7 +15701,7 @@ window.followUpCloud = async (path, method = "GET", body) => {
   if (method === "GET") {
     if (path === "/status") {
       await readCatalog();
-      return { development: config.environment !== "production", local: false, writeback_enabled: config.environment === "production", last_sync: catalog.published_at };
+      return { development: config.environment !== "production", local: false, writeback_enabled: config.environment === "production", last_sync: catalog.published_at, saved_activity_count: catalog.items.length };
     }
     if (!catalog) await readCatalog();
     if (path === "/fields") return { fields: catalog.fields };
