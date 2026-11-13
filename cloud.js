@@ -15542,6 +15542,40 @@ async function timedFetch(url, options = {}, seconds = 45, stage = "connection")
     clearTimeout(timeout);
   }
 }
+function simpleDownload(url, seconds = 45) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.responseType = "blob";
+    xhr.timeout = seconds * 1e3;
+    xhr.withCredentials = false;
+    const fail = (timeout = false) => {
+      const e = new Error(timeout ? "OneDrive file download timed out. Tap Retry connection." : "OneDrive file download failed (FU-DL-NET). Tap Retry connection.");
+      e.deliveryError = true;
+      e.stage = "download";
+      e.transport = "xhr";
+      reject(e);
+    };
+    xhr.onerror = () => fail();
+    xhr.ontimeout = () => fail(true);
+    xhr.onabort = () => fail();
+    xhr.onload = () => {
+      if (xhr.status === 0) {
+        fail();
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const e = new Error(`OneDrive file download failed (${xhr.status}). Tap Retry connection.`);
+        e.status = xhr.status;
+        e.stage = "download";
+        reject(e);
+        return;
+      }
+      resolve(new Response(xhr.response, { status: xhr.status }));
+    };
+    xhr.send();
+  });
+}
 var OneDrive = class {
   constructor(config2) {
     this.config = config2;
@@ -15623,13 +15657,35 @@ var OneDrive = class {
     } while (path);
     return items2;
   }
+  async findAppFolder() {
+    const normalize = (name3) => String(name3 || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const wanted = normalize(this.config.folderName), matches = /* @__PURE__ */ new Map();
+    const remember = (folders2) => {
+      for (const folder of folders2) if (normalize(folder.name) === wanted) matches.set(folder.drive + ":" + folder.id, folder);
+    };
+    const root = await this.folders();
+    remember(root);
+    for (const folder of root) {
+      const name3 = normalize(folder.name);
+      if (!["idcas", "idcas - jerry billing"].includes(name3)) continue;
+      const children = await this.folders(folder);
+      remember(children);
+      if (name3 === "idcas") for (const billing of children.filter((f) => normalize(f.name) === "idcas - jerry billing")) remember(await this.folders(billing));
+    }
+    if (matches.size !== 1) {
+      const e = new Error(matches.size ? "More than one Follow Up folder was found. Choose the app folder." : "Follow Up folder was not found automatically. Choose drchrono iphone app in IDCAS / IDCAS - Jerry Billing.");
+      e.folderChoiceRequired = true;
+      throw e;
+    }
+    return [...matches.values()][0];
+  }
   async download(target2, path) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const item = await this.request(this.item(target2, path));
       const url = item["@microsoft.graph.downloadUrl"];
       if (!url || new URL(url).protocol !== "https:") throw new Error("OneDrive did not provide a file download link. Choose the app folder again.");
       try {
-        const r = await timedFetch(url, { credentials: "omit", cache: "no-store" }, 45, "download");
+        const r = attempt === 0 ? await timedFetch(url, { credentials: "omit" }, 45, "download") : await simpleDownload(url);
         if (!r.ok) {
           const e = new Error(`OneDrive file download failed (${r.status}). Tap Retry connection.`);
           e.status = r.status;
@@ -15676,14 +15732,15 @@ var dataFolder = config.environment === "production" ? "Production" : "Developme
 var panel = document.createElement("section");
 panel.className = "panel narrow";
 var title = document.createElement("h2");
-title.textContent = "Connect Follow Up";
+title.textContent = "Follow Up";
 var message = document.createElement("p");
-message.textContent = "Sign in with Microsoft, then select drchrono iphone app inside IDCAS / IDCAS - Jerry Billing. Just like PaperDrop.";
+message.textContent = "Sign in to load your follow-ups.";
 var sign2 = document.createElement("button");
 sign2.textContent = "Sign in to OneDrive";
 var choose = document.createElement("button");
 choose.textContent = "Choose app folder";
 choose.className = "secondary";
+choose.hidden = true;
 var retry = document.createElement("button");
 retry.textContent = "Retry connection";
 retry.hidden = true;
@@ -15734,6 +15791,7 @@ function initialize() {
   const startup = drive.init().then(() => {
     target = JSON.parse(localStorage.getItem(key2) || "null");
     initFailed = false;
+    sign2.hidden = !!drive.auth?.getActiveAccount();
   }).catch((e) => {
     initFailed = true;
     throw e;
@@ -15745,15 +15803,34 @@ function initialize() {
 var ready = initialize();
 retry.onclick = () => {
   retry.disabled = true;
+  retry.textContent = "Retrying\u2026";
+  message.textContent = "Downloading follow-ups\u2026";
+  const status = document.getElementById("message");
+  status.hidden = false;
+  status.className = "";
+  status.textContent = "Retrying OneDrive download\u2026";
   if (initFailed) ready = initialize();
   document.getElementById("refresh").click();
 };
 async function readCatalog() {
   await ready;
-  if (!target) throw Error("Sign in and choose your app folder above.");
-  catalog = await (await drive.download(target, dataFolder + "/catalog.json")).json();
-  if (catalog.environment !== config.environment || catalog.version !== 1) throw Error("This folder does not match this app environment.");
+  if (!target) {
+    if (!drive.auth?.getActiveAccount()) await drive.token();
+    message.textContent = "Finding your Follow Up folder\u2026";
+    target = await drive.findAppFolder();
+  }
+  message.textContent = "Downloading follow-ups\u2026";
+  const next = await (await drive.download(target, dataFolder + "/catalog.json")).json();
+  if (next.environment !== config.environment || next.version !== 1) {
+    const e = new Error("This folder does not match this app environment. Choose the app folder.");
+    e.folderChoiceRequired = true;
+    target = null;
+    throw e;
+  }
+  catalog = next;
+  localStorage.setItem(key2, JSON.stringify(target));
   panel.hidden = true;
+  choose.hidden = true;
   return catalog;
 }
 window.followUpCloud = async (path, method = "GET", body) => {
@@ -15773,10 +15850,13 @@ window.followUpCloud = async (path, method = "GET", body) => {
       } catch (e) {
         panel.hidden = false;
         retry.hidden = false;
+        choose.hidden = !e.folderChoiceRequired;
+        sign2.hidden = !e.authRequired && !!drive.auth?.getActiveAccount();
         message.textContent = e.message;
         throw e;
       } finally {
         retry.disabled = false;
+        retry.textContent = "Retry connection";
       }
     }
     if (!catalog) await readCatalog();
