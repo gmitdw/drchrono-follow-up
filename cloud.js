@@ -55,7 +55,7 @@ function renderFields() {
   const box = $("field-options");
   box.replaceChildren();
   if (!fields.length) {
-    box.append(element("p", "No DRJ__ fields loaded yet. Refresh from DrChrono on the dashboard.", "hint"));
+    box.append(element("p", "No DRJ_ fields loaded yet. Refresh from DrChrono on the dashboard.", "hint"));
     return;
   }
   fields.forEach((field) => {
@@ -78,7 +78,7 @@ async function refresh() {
   $("pair-panel").hidden = true;
   $("workspace").hidden = false;
   $("environment").hidden = false;
-  $("environment").textContent = `${info.development ? "Development" : "Production"} \xB7 v7`;
+  $("environment").textContent = `${info.development ? "Development" : "Production"} \xB7 v8`;
   $("development-notice").hidden = !info.development;
   $("dashboard-tools").hidden = !info.local;
   $("sign-out").hidden = info.local;
@@ -118,7 +118,7 @@ async function loadItems(append = false) {
     renderItems();
     return;
   }
-  const params = new URLSearchParams({ status: $("status").value, sort: $("sort").value, search: $("search").value, offset: String(append ? items.length : 0) });
+  const params = new URLSearchParams({ creator: $("creator-filter").value, status: $("status").value, sort: $("sort").value, search: $("search").value, offset: String(append ? items.length : 0) });
   fields.filter((f) => selected.has(f.id)).forEach((f) => params.append("field_id", String(f.id)));
   const result = await api(`/activities?${params}`);
   if (current !== requestNumber) return;
@@ -150,6 +150,31 @@ function renderItems() {
     editor.value = drafts.has(key(item)) ? drafts.get(key(item)) : item.notes;
     const actions = element("div", void 0, "card-actions"), save = element("button", "Save notes", "secondary"), complete = element("button", item.status === "open" ? "\u2713 Mark completed" : "\u21B6 Reactivate");
     complete.hidden = item.status === "cleared";
+    if (item.source_type === "personal") {
+      const label2 = element("label", "Created by "), select = element("select");
+      for (const name3 of ["", "Jerry", "Darryl"]) {
+        const option = element("option", name3 || "Unassigned");
+        option.value = name3;
+        option.disabled = !name3;
+        select.append(option);
+      }
+      select.value = item.creator_name || "";
+      label2.append(select);
+      card.append(label2);
+      select.addEventListener("change", async () => {
+        select.disabled = true;
+        try {
+          await api(`/activities/${encodeURIComponent(item.appointment_id)}/${item.field_id}/creator`, "PUT", { version: item.version, creator_name: select.value });
+          await refresh();
+          notify("Creator saved.");
+        } catch (e) {
+          select.value = item.creator_name || "";
+          notify(e.message, true);
+        } finally {
+          select.disabled = false;
+        }
+      });
+    }
     function dirtyState() {
       const dirty = editor.value !== item.notes;
       save.disabled = !dirty;
@@ -235,6 +260,9 @@ function renderItems() {
     list.append(card);
   });
 }
+function creatorKey() {
+  return window.followUpCreatorKey?.() || `follow-up-creator-${info?.development ? "development" : "production"}-desktop`;
+}
 var $, info, fields, items, total, selected, requestNumber, drafts, key, displayActivity, searchTimer;
 var init_ui = __esm({
   "src/ui.js"() {
@@ -248,10 +276,11 @@ var init_ui = __esm({
     requestNumber = 0;
     drafts = /* @__PURE__ */ new Map();
     key = (item) => `${item.appointment_id}:${item.field_id}`;
-    displayActivity = (name3) => name3.replace(/^DRJ__/, "").replace(/_/g, " ") || name3;
+    displayActivity = (name3) => name3.replace(/^DRJ_+/, "").replace(/_/g, " ") || name3;
     $("refresh").addEventListener("click", () => refresh().then(() => {
       if (drafts.size) notify("List refreshed. Unsaved notes were kept in their editors; review before saving.");
     }).catch((e) => notify(e.message, true)));
+    $("creator-filter").addEventListener("change", () => loadItems().catch((e) => notify(e.message, true)));
     $("status").addEventListener("change", () => loadItems().catch((e) => notify(e.message, true)));
     $("sort").addEventListener("change", () => loadItems().catch((e) => notify(e.message, true)));
     $("search").addEventListener("input", () => {
@@ -302,7 +331,7 @@ var init_ui = __esm({
       }
     });
     window.addEventListener("beforeunload", (event) => {
-      if (drafts.size || [...$("personal-form").elements].some((el) => el.value && el.tagName !== "BUTTON")) {
+      if (drafts.size || [...$("personal-form").elements].some((el) => el.value && el.tagName !== "BUTTON" && el.id !== "personal-creator")) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -315,6 +344,7 @@ var init_ui = __esm({
     refresh().catch((e) => notify(e.message, true));
     $("new-follow-up").addEventListener("click", () => {
       $("personal-panel").hidden = false;
+      $("personal-creator").value = localStorage.getItem(creatorKey()) || "";
       $("personal-title").focus();
     });
     $("personal-cancel").addEventListener("click", () => {
@@ -324,7 +354,9 @@ var init_ui = __esm({
       event.preventDefault();
       $("personal-save").disabled = true;
       try {
-        await api("/personal", "POST", { title: $("personal-title").value, patient_name: $("personal-patient").value, date_of_service: $("personal-dos").value || null, directions: $("personal-directions").value, notes: $("personal-notes").value });
+        await api("/personal", "POST", { creator_name: $("personal-creator").value, title: $("personal-title").value, patient_name: $("personal-patient").value, date_of_service: $("personal-dos").value || null, directions: $("personal-directions").value, notes: $("personal-notes").value });
+        localStorage.setItem(creatorKey(), $("personal-creator").value);
+        $("creator-filter").value = "Everyone";
         $("personal-form").reset();
         $("personal-panel").hidden = true;
         selected.add(-1);
@@ -342,7 +374,7 @@ var init_ui = __esm({
   }
 });
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/Constants.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/Constants.mjs
 var Constants = {
   LIBRARY_NAME: "MSAL.JS",
   SKU: "msal.js.common",
@@ -575,7 +607,7 @@ var JsonWebTokenTypes = {
 };
 var DEFAULT_TOKEN_RENEWAL_OFFSET_SEC = 300;
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/AuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/AuthErrorCodes.mjs
 var AuthErrorCodes_exports = {};
 __export(AuthErrorCodes_exports, {
   postRequestFailed: () => postRequestFailed,
@@ -584,7 +616,7 @@ __export(AuthErrorCodes_exports, {
 var unexpectedError = "unexpected_error";
 var postRequestFailed = "post_request_failed";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/AuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/AuthError.mjs
 var AuthErrorMessages = {
   [unexpectedError]: "Unexpected error in authentication.",
   [postRequestFailed]: "Post request failed from the network, could be a 4xx/5xx or a network unavailability. Please check the exact error code for details."
@@ -617,7 +649,7 @@ function createAuthError(code, additionalMessage) {
   return new AuthError(code, additionalMessage ? `${AuthErrorMessages[code]} ${additionalMessage}` : AuthErrorMessages[code]);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/ClientAuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/ClientAuthErrorCodes.mjs
 var ClientAuthErrorCodes_exports = {};
 __export(ClientAuthErrorCodes_exports, {
   authTimeNotFound: () => authTimeNotFound,
@@ -712,7 +744,7 @@ var methodNotImplemented = "method_not_implemented";
 var nestedAppAuthBridgeDisabled = "nested_app_auth_bridge_disabled";
 var platformBrokerError = "platform_broker_error";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/ClientAuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/ClientAuthError.mjs
 var ClientAuthErrorMessages = {
   [clientInfoDecodingError]: "The client info could not be parsed/decoded correctly",
   [clientInfoEmptyError]: "The client info was empty",
@@ -949,7 +981,7 @@ function createClientAuthError(errorCode, additionalMessage) {
   return new ClientAuthError(errorCode, additionalMessage);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/crypto/ICrypto.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/crypto/ICrypto.mjs
 var DEFAULT_CRYPTO_IMPLEMENTATION = {
   createNewGuid: () => {
     throw createClientAuthError(methodNotImplemented);
@@ -983,7 +1015,7 @@ var DEFAULT_CRYPTO_IMPLEMENTATION = {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/logger/Logger.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/logger/Logger.mjs
 var LogLevel;
 (function(LogLevel2) {
   LogLevel2[LogLevel2["Error"] = 0] = "Error";
@@ -1153,11 +1185,11 @@ var Logger = class _Logger {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/packageMetadata.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/packageMetadata.mjs
 var name = "@azure/msal-common";
 var version = "15.17.0";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/AuthorityOptions.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/AuthorityOptions.mjs
 var AzureCloudInstance = {
   // AzureCloudInstance is not specified.
   None: "none",
@@ -1173,7 +1205,7 @@ var AzureCloudInstance = {
   AzureUsGovernment: "https://login.microsoftonline.us"
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/ClientConfigurationErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/ClientConfigurationErrorCodes.mjs
 var ClientConfigurationErrorCodes_exports = {};
 __export(ClientConfigurationErrorCodes_exports, {
   authorityMismatch: () => authorityMismatch,
@@ -1226,7 +1258,7 @@ var invalidRequestMethodForEAR = "invalid_request_method_for_EAR";
 var invalidAuthorizePostBodyParameters = "invalid_authorize_post_body_parameters";
 var invalidPlatformBrokerConfiguration = "invalid_platform_broker_configuration";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/ClientConfigurationError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/ClientConfigurationError.mjs
 var ClientConfigurationErrorMessages = {
   [redirectUriEmpty]: "A redirect URI is required for all calls, and none has been set.",
   [claimsRequestParsingError]: "Could not parse the given claims request object.",
@@ -1362,7 +1394,7 @@ function createClientConfigurationError(errorCode) {
   return new ClientConfigurationError(errorCode);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/StringUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/StringUtils.mjs
 var StringUtils = class {
   /**
    * Check if stringified object is empty
@@ -1475,7 +1507,7 @@ var StringUtils = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/request/ScopeSet.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/request/ScopeSet.mjs
 var ScopeSet = class _ScopeSet {
   constructor(inputScopes) {
     const scopeArr = inputScopes ? StringUtils.trimArrayEntries([...inputScopes]) : [];
@@ -1644,7 +1676,7 @@ var ScopeSet = class _ScopeSet {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/account/ClientInfo.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/account/ClientInfo.mjs
 function buildClientInfo(rawClientInfo, base64Decode2) {
   if (!rawClientInfo) {
     throw createClientAuthError(clientInfoEmptyError);
@@ -1667,7 +1699,7 @@ function buildClientInfoFromHomeAccountId(homeAccountId) {
   };
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/account/AccountInfo.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/account/AccountInfo.mjs
 function tenantIdMatchesHomeTenant(tenantId, homeAccountId) {
   return !!tenantId && !!homeAccountId && tenantId === homeAccountId.split(".")[1];
 }
@@ -1711,7 +1743,7 @@ function updateAccountTenantProfileData(baseAccountInfo, tenantProfile, idTokenC
   return updatedAccountInfo;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/AuthorityType.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/AuthorityType.mjs
 var AuthorityType = {
   Default: 0,
   Adfs: 1,
@@ -1719,7 +1751,7 @@ var AuthorityType = {
   Ciam: 3
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/account/TokenClaims.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/account/TokenClaims.mjs
 function getTenantIdFromIdTokenClaims(idTokenClaims) {
   if (idTokenClaims) {
     const tenantId = idTokenClaims.tid || idTokenClaims.tfp || idTokenClaims.acr;
@@ -1728,7 +1760,7 @@ function getTenantIdFromIdTokenClaims(idTokenClaims) {
   return null;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/ProtocolMode.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/ProtocolMode.mjs
 var ProtocolMode = {
   /**
    * Auth Code + PKCE with Entra ID (formerly AAD) specific optimizations and features
@@ -1745,7 +1777,7 @@ var ProtocolMode = {
   EAR: "EAR"
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/cache/entities/AccountEntity.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/cache/entities/AccountEntity.mjs
 var AccountEntity = class _AccountEntity {
   /**
    * Returns the AccountInfo interface for this account.
@@ -1901,7 +1933,7 @@ var AccountEntity = class _AccountEntity {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/account/AuthToken.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/account/AuthToken.mjs
 var AuthToken_exports = {};
 __export(AuthToken_exports, {
   checkMaxAge: () => checkMaxAge,
@@ -1944,7 +1976,7 @@ function checkMaxAge(authTime, maxAge) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/UrlUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/UrlUtils.mjs
 var UrlUtils_exports = {};
 __export(UrlUtils_exports, {
   getDeserializedResponse: () => getDeserializedResponse,
@@ -2015,7 +2047,7 @@ function normalizeUrlForComparison(url) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/url/UrlString.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/url/UrlString.mjs
 var UrlString = class _UrlString {
   get urlString() {
     return this._urlString;
@@ -2148,7 +2180,7 @@ var UrlString = class _UrlString {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/AuthorityMetadata.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/AuthorityMetadata.mjs
 var rawMetdataJSON = {
   endpointMetadata: {
     "login.microsoftonline.com": {
@@ -2294,7 +2326,7 @@ function getCloudDiscoveryMetadataFromNetworkResponse(response, authorityHost) {
   return null;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/CacheErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/CacheErrorCodes.mjs
 var CacheErrorCodes_exports = {};
 __export(CacheErrorCodes_exports, {
   cacheErrorUnknown: () => cacheErrorUnknown,
@@ -2303,7 +2335,7 @@ __export(CacheErrorCodes_exports, {
 var cacheQuotaExceeded = "cache_quota_exceeded";
 var cacheErrorUnknown = "cache_error_unknown";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/CacheError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/CacheError.mjs
 var CacheErrorMessages = {
   [cacheQuotaExceeded]: "Exceeded cache storage capacity.",
   [cacheErrorUnknown]: "Unexpected error occurred when using cache storage."
@@ -2329,7 +2361,7 @@ function createCacheError(e) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/cache/CacheManager.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/cache/CacheManager.mjs
 var CacheManager = class {
   constructor(clientId, cryptoImpl, logger, performanceClient, staticAuthorityOptions) {
     this.clientId = clientId;
@@ -3310,7 +3342,7 @@ var DefaultStorageClass = class extends CacheManager {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/telemetry/performance/PerformanceEvent.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/telemetry/performance/PerformanceEvent.mjs
 var PerformanceEvents = {
   /**
    * acquireTokenByCode API (msal-browser and msal-node).
@@ -3802,7 +3834,7 @@ var PerformanceEventStatus = {
   Completed: 2
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/telemetry/performance/StubPerformanceClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/telemetry/performance/StubPerformanceClient.mjs
 var StubPerformanceMeasurement = class {
   startMeasurement() {
     return;
@@ -3879,7 +3911,7 @@ var StubPerformanceClient = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/config/ClientConfiguration.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/config/ClientConfiguration.mjs
 var DEFAULT_SYSTEM_OPTIONS = {
   tokenRenewalOffsetSeconds: DEFAULT_TOKEN_RENEWAL_OFFSET_SEC,
   preventCorsPreflight: false
@@ -3957,13 +3989,13 @@ function isOidcProtocolMode(config2) {
   return config2.authOptions.authority.options.protocolMode === ProtocolMode.OIDC;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/account/CcsCredential.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/account/CcsCredential.mjs
 var CcsCredentialType = {
   HOME_ACCOUNT_ID: "home_account_id",
   UPN: "UPN"
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/request/RequestParameterBuilder.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/request/RequestParameterBuilder.mjs
 var RequestParameterBuilder_exports = {};
 __export(RequestParameterBuilder_exports, {
   addApplicationTelemetry: () => addApplicationTelemetry,
@@ -4015,7 +4047,7 @@ __export(RequestParameterBuilder_exports, {
   instrumentBrokerParams: () => instrumentBrokerParams
 });
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/constants/AADServerParamKeys.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/constants/AADServerParamKeys.mjs
 var AADServerParamKeys_exports = {};
 __export(AADServerParamKeys_exports, {
   ACCESS_TOKEN: () => ACCESS_TOKEN,
@@ -4138,7 +4170,7 @@ var EAR_JWK = "ear_jwk";
 var EAR_JWE_CRYPTO = "ear_jwe_crypto";
 var CLI_DATA = "clidata";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/request/RequestParameterBuilder.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/request/RequestParameterBuilder.mjs
 function instrumentBrokerParams(parameters, correlationId, performanceClient) {
   if (!correlationId) {
     return;
@@ -4366,28 +4398,28 @@ function addPostBodyParameters(parameters, bodyParameters) {
   });
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/AuthorityFactory.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/AuthorityFactory.mjs
 var AuthorityFactory_exports = {};
 __export(AuthorityFactory_exports, {
   createDiscoveredInstance: () => createDiscoveredInstance
 });
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/OpenIdConfigResponse.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/OpenIdConfigResponse.mjs
 function isOpenIdConfigResponse(response) {
   return response.hasOwnProperty("authorization_endpoint") && response.hasOwnProperty("token_endpoint") && response.hasOwnProperty("issuer") && response.hasOwnProperty("jwks_uri");
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/CloudInstanceDiscoveryResponse.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/CloudInstanceDiscoveryResponse.mjs
 function isCloudInstanceDiscoveryResponse(response) {
   return response.hasOwnProperty("tenant_discovery_endpoint") && response.hasOwnProperty("metadata");
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/CloudInstanceDiscoveryErrorResponse.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/CloudInstanceDiscoveryErrorResponse.mjs
 function isCloudInstanceDiscoveryErrorResponse(response) {
   return response.hasOwnProperty("error") && response.hasOwnProperty("error_description");
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/FunctionWrappers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/FunctionWrappers.mjs
 var invoke = (callback, eventName, logger, telemetryClient, correlationId) => {
   return (...args) => {
     logger.trace(`Executing function ${eventName}`);
@@ -4447,7 +4479,7 @@ var invokeAsync = (callback, eventName, logger, telemetryClient, correlationId) 
   };
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/RegionDiscovery.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/RegionDiscovery.mjs
 var RegionDiscovery = class _RegionDiscovery {
   constructor(networkInterface, logger, performanceClient, correlationId) {
     this.networkInterface = networkInterface;
@@ -4529,7 +4561,7 @@ RegionDiscovery.IMDS_OPTIONS = {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/cache/utils/CacheHelpers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/cache/utils/CacheHelpers.mjs
 var CacheHelpers_exports = {};
 __export(CacheHelpers_exports, {
   createAccessTokenEntity: () => createAccessTokenEntity,
@@ -4550,7 +4582,7 @@ __export(CacheHelpers_exports, {
   updateCloudDiscoveryMetadata: () => updateCloudDiscoveryMetadata
 });
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/TimeUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/TimeUtils.mjs
 var TimeUtils_exports = {};
 __export(TimeUtils_exports, {
   delay: () => delay,
@@ -4590,7 +4622,7 @@ function delay(t, value) {
   return new Promise((resolve) => setTimeout(() => resolve(value), t));
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/cache/utils/CacheHelpers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/cache/utils/CacheHelpers.mjs
 function createIdTokenEntity(homeAccountId, environment, idToken, clientId, tenantId) {
   const idTokenEntity = {
     credentialType: CredentialType.ID_TOKEN,
@@ -4747,7 +4779,7 @@ function isAuthorityMetadataExpired(metadata) {
   return metadata.expiresAt <= nowSeconds();
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/Authority.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/Authority.mjs
 var Authority = class _Authority {
   constructor(authority, networkInterface, cacheManager, authorityOptions, logger, correlationId, performanceClient, managedIdentity) {
     this.canonicalAuthority = authority;
@@ -5465,7 +5497,7 @@ function buildStaticAuthorityOptions(authOptions) {
   };
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/authority/AuthorityFactory.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/authority/AuthorityFactory.mjs
 async function createDiscoveredInstance(authorityUri, networkClient, cacheManager, authorityOptions, logger, correlationId, performanceClient) {
   performanceClient?.addQueueMeasurement(PerformanceEvents.AuthorityFactoryCreateDiscoveredInstance, correlationId);
   const authorityUriFinal = Authority.transformCIAMAuthority(formatAuthorityUri(authorityUri));
@@ -5478,7 +5510,7 @@ async function createDiscoveredInstance(authorityUri, networkClient, cacheManage
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/ServerError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/ServerError.mjs
 var ServerError = class _ServerError extends AuthError {
   constructor(errorCode, errorMessage, subError, errorNo, status) {
     super(errorCode, errorMessage, subError);
@@ -5489,7 +5521,7 @@ var ServerError = class _ServerError extends AuthError {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/network/RequestThumbprint.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/network/RequestThumbprint.mjs
 function getRequestThumbprint(clientId, request, homeAccountId) {
   return {
     clientId,
@@ -5506,7 +5538,7 @@ function getRequestThumbprint(clientId, request, homeAccountId) {
   };
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/network/ThrottlingUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/network/ThrottlingUtils.mjs
 var ThrottlingUtils = class _ThrottlingUtils {
   /**
    * Prepares a RequestThumbprint to be stored as a key.
@@ -5582,7 +5614,7 @@ var ThrottlingUtils = class _ThrottlingUtils {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/NetworkError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/NetworkError.mjs
 var NetworkError = class _NetworkError extends AuthError {
   constructor(error, httpStatus, responseHeaders) {
     super(error.errorCode, error.errorMessage, error.subError);
@@ -5598,7 +5630,7 @@ function createNetworkError(error, httpStatus, responseHeaders, additionalError)
   return new NetworkError(error, httpStatus, responseHeaders);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/client/BaseClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/client/BaseClient.mjs
 var BaseClient = class {
   constructor(configuration, performanceClient) {
     this.config = buildClientConfiguration(configuration);
@@ -5719,7 +5751,7 @@ var BaseClient = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/InteractionRequiredAuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/InteractionRequiredAuthErrorCodes.mjs
 var InteractionRequiredAuthErrorCodes_exports = {};
 __export(InteractionRequiredAuthErrorCodes_exports, {
   badToken: () => badToken,
@@ -5742,7 +5774,7 @@ var loginRequired = "login_required";
 var badToken = "bad_token";
 var interruptedUser = "interrupted_user";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/InteractionRequiredAuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/InteractionRequiredAuthError.mjs
 var InteractionRequiredServerErrorMessage = [
   interactionRequired,
   consentRequired,
@@ -5810,7 +5842,7 @@ function createInteractionRequiredAuthError(errorCode) {
   return new InteractionRequiredAuthError(errorCode, InteractionRequiredAuthErrorMessages[errorCode]);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/ProtocolUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/ProtocolUtils.mjs
 var ProtocolUtils = class _ProtocolUtils {
   /**
    * Appends user state with random guid, or returns random guid.
@@ -5867,7 +5899,7 @@ var ProtocolUtils = class _ProtocolUtils {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/crypto/PopTokenGenerator.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/crypto/PopTokenGenerator.mjs
 var KeyLocation = {
   SW: "sw"
 };
@@ -5939,7 +5971,7 @@ var PopTokenGenerator = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/cache/persistence/TokenCacheContext.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/cache/persistence/TokenCacheContext.mjs
 var TokenCacheContext = class {
   constructor(tokenCache, hasChanged) {
     this.cache = tokenCache;
@@ -5959,7 +5991,7 @@ var TokenCacheContext = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/response/ResponseHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/response/ResponseHandler.mjs
 var ResponseHandler = class _ResponseHandler {
   constructor(clientId, cacheStorage, cryptoObj, logger, serializableCache, persistencePlugin, performanceClient) {
     this.clientId = clientId;
@@ -6231,7 +6263,7 @@ function buildAccountToCache(cacheStorage, authority, homeAccountId, base64Decod
   return baseAccount;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/utils/ClientAssertionUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/utils/ClientAssertionUtils.mjs
 async function getClientAssertion(clientAssertion, clientId, tokenEndpoint) {
   if (typeof clientAssertion === "string") {
     return clientAssertion;
@@ -6244,7 +6276,7 @@ async function getClientAssertion(clientAssertion, clientId, tokenEndpoint) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/client/AuthorizationCodeClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/client/AuthorizationCodeClient.mjs
 var AuthorizationCodeClient = class extends BaseClient {
   constructor(configuration, performanceClient) {
     super(configuration, performanceClient);
@@ -6438,7 +6470,7 @@ var AuthorizationCodeClient = class extends BaseClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/client/RefreshTokenClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/client/RefreshTokenClient.mjs
 var DEFAULT_REFRESH_TOKEN_EXPIRATION_OFFSET_SECONDS = 300;
 var RefreshTokenClient = class extends BaseClient {
   constructor(configuration, performanceClient) {
@@ -6613,7 +6645,7 @@ var RefreshTokenClient = class extends BaseClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/client/SilentFlowClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/client/SilentFlowClient.mjs
 var SilentFlowClient = class extends BaseClient {
   constructor(configuration, performanceClient) {
     super(configuration, performanceClient);
@@ -6691,7 +6723,7 @@ var SilentFlowClient = class extends BaseClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/network/INetworkModule.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/network/INetworkModule.mjs
 var StubbedNetworkModule = {
   sendGetRequestAsync: () => {
     return Promise.reject(createClientAuthError(methodNotImplemented));
@@ -6701,7 +6733,7 @@ var StubbedNetworkModule = {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/protocol/Authorize.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/protocol/Authorize.mjs
 var Authorize_exports = {};
 __export(Authorize_exports, {
   getAuthorizationCodePayload: () => getAuthorizationCodePayload,
@@ -6856,7 +6888,7 @@ function extractLoginHint(account) {
   return account.loginHint || account.idTokenClaims?.login_hint || null;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/telemetry/server/ServerTelemetryManager.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/telemetry/server/ServerTelemetryManager.mjs
 var skuGroupSeparator = ",";
 var skuValueSeparator = "|";
 function makeExtraSkuString(params) {
@@ -7082,11 +7114,11 @@ var ServerTelemetryManager = class _ServerTelemetryManager {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/JoseHeaderErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/JoseHeaderErrorCodes.mjs
 var missingKidError = "missing_kid_error";
 var missingAlgError = "missing_alg_error";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/error/JoseHeaderError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/error/JoseHeaderError.mjs
 var JoseHeaderErrorMessages = {
   [missingKidError]: "The JOSE Header for the requested JWT, JWS or JWK object requires a keyId to be configured as the 'kid' header claim. No 'kid' value was provided.",
   [missingAlgError]: "The JOSE Header for the requested JWT, JWS or JWK object requires an algorithm to be specified as the 'alg' header claim. No 'alg' value was provided."
@@ -7102,7 +7134,7 @@ function createJoseHeaderError(code) {
   return new JoseHeaderError(code, JoseHeaderErrorMessages[code]);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-common/dist/crypto/JoseHeader.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-common/dist/crypto/JoseHeader.mjs
 var JoseHeader = class _JoseHeader {
   constructor(options) {
     this.typ = options.typ;
@@ -7134,7 +7166,7 @@ var JoseHeader = class _JoseHeader {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/BrowserAuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/BrowserAuthErrorCodes.mjs
 var pkceNotCreated = "pkce_not_created";
 var earJwkEmpty = "ear_jwk_empty";
 var earJweEmpty = "ear_jwe_empty";
@@ -7187,7 +7219,7 @@ var failedToParseHeaders = "failed_to_parse_headers";
 var failedToDecryptEarResponse = "failed_to_decrypt_ear_response";
 var timedOut = "timed_out";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/BrowserAuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/BrowserAuthError.mjs
 var ErrorLink = "For more visit: aka.ms/msaljs/browser-errors";
 var BrowserAuthErrorMessages = {
   [pkceNotCreated]: "The PKCE code challenge and verifier could not be generated.",
@@ -7435,7 +7467,7 @@ function createBrowserAuthError(errorCode, subError) {
   return new BrowserAuthError(errorCode, subError);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/utils/BrowserConstants.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/utils/BrowserConstants.mjs
 var BrowserConstants = {
   /**
    * Invalid grant error code
@@ -7591,7 +7623,7 @@ var iFrameRenewalPolicies = [
   CacheLookupPolicy.RefreshTokenAndNetwork
 ];
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/encode/Base64Encode.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/encode/Base64Encode.mjs
 function urlEncode(input) {
   return encodeURIComponent(base64Encode(input).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_"));
 }
@@ -7606,7 +7638,7 @@ function base64EncArr(aBytes) {
   return btoa(binString);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/encode/Base64Decode.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/encode/Base64Decode.mjs
 function base64Decode(input) {
   return new TextDecoder().decode(base64DecToArr(input));
 }
@@ -7628,7 +7660,7 @@ function base64DecToArr(base64String) {
   return Uint8Array.from(binString, (m) => m.codePointAt(0) || 0);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/crypto/BrowserCrypto.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/crypto/BrowserCrypto.mjs
 var PKCS1_V15_KEYGEN_ALG = "RSASSA-PKCS1-v1_5";
 var AES_GCM = "AES-GCM";
 var HKDF = "HKDF";
@@ -7814,12 +7846,12 @@ async function hashString(plainText) {
   return urlEncodeArr(hashBytes);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/BrowserConfigurationAuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/BrowserConfigurationAuthErrorCodes.mjs
 var storageNotSupported = "storage_not_supported";
 var stubbedPublicClientApplicationCalled = "stubbed_public_client_application_called";
 var inMemRedirectUnavailable = "in_mem_redirect_unavailable";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/BrowserConfigurationAuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/BrowserConfigurationAuthError.mjs
 var BrowserConfigurationAuthErrorMessages = {
   [storageNotSupported]: "Given storage configuration option was not supported.",
   [stubbedPublicClientApplicationCalled]: "Stub instance of Public Client Application was called. If using msal-react, please ensure context is not used without a provider. For more visit: aka.ms/msaljs/browser-errors",
@@ -7850,7 +7882,7 @@ function createBrowserConfigurationAuthError(errorCode) {
   return new BrowserConfigurationAuthError(errorCode, BrowserConfigurationAuthErrorMessages[errorCode]);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/utils/BrowserUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/utils/BrowserUtils.mjs
 function clearHash(contentWindow) {
   contentWindow.location.hash = "";
   if (typeof contentWindow.history.replaceState === "function") {
@@ -7933,7 +7965,7 @@ function createGuid() {
 }
 var addClientCapabilitiesToClaims2 = RequestParameterBuilder_exports.addClientCapabilitiesToClaims;
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/navigation/NavigationClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/navigation/NavigationClient.mjs
 var NavigationClient = class _NavigationClient {
   /**
    * Navigates to other pages within the same web application
@@ -7970,7 +8002,7 @@ var NavigationClient = class _NavigationClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/network/FetchClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/network/FetchClient.mjs
 var FetchClient = class {
   /**
    * Fetch Client for REST endpoints - Get request
@@ -8064,7 +8096,7 @@ function getHeaderDict(headers) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/config/Configuration.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/config/Configuration.mjs
 var DEFAULT_POPUP_TIMEOUT_MS = 6e4;
 var DEFAULT_IFRAME_TIMEOUT_MS = 1e4;
 var DEFAULT_REDIRECT_TIMEOUT_MS = 3e4;
@@ -8169,11 +8201,11 @@ function buildConfiguration({ auth: userInputAuth, cache: userInputCache, system
   return overlayedConfig;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/packageMetadata.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/packageMetadata.mjs
 var name2 = "@azure/msal-browser";
 var version2 = "4.30.0";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/CacheKeys.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/CacheKeys.mjs
 var PREFIX = "msal";
 var BROWSER_PREFIX = "browser";
 var CACHE_KEY_SEPARATOR = "|";
@@ -8198,7 +8230,7 @@ function getTokenKeysCacheKey(clientId, schema = CREDENTIAL_SCHEMA_VERSION) {
   return `${PREFIX}.${schema}.${TOKEN_KEYS}.${clientId}`;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/operatingcontext/BaseOperatingContext.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/operatingcontext/BaseOperatingContext.mjs
 var BaseOperatingContext = class _BaseOperatingContext {
   static loggerCallback(level, message2) {
     switch (level) {
@@ -8264,7 +8296,7 @@ var BaseOperatingContext = class _BaseOperatingContext {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/operatingcontext/StandardOperatingContext.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/operatingcontext/StandardOperatingContext.mjs
 var StandardOperatingContext = class _StandardOperatingContext extends BaseOperatingContext {
   /**
    * Return the module name.  Intended for use with import() to enable dynamic import
@@ -8294,7 +8326,7 @@ var StandardOperatingContext = class _StandardOperatingContext extends BaseOpera
 StandardOperatingContext.MODULE_NAME = "";
 StandardOperatingContext.ID = "StandardOperatingContext";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/DatabaseStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/DatabaseStorage.mjs
 var DatabaseStorage = class {
   constructor() {
     this.dbName = DB_NAME;
@@ -8486,7 +8518,7 @@ var DatabaseStorage = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/MemoryStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/MemoryStorage.mjs
 var MemoryStorage = class {
   constructor() {
     this.cache = /* @__PURE__ */ new Map();
@@ -8526,7 +8558,7 @@ var MemoryStorage = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/AsyncMemoryStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/AsyncMemoryStorage.mjs
 var AsyncMemoryStorage = class {
   constructor(logger) {
     this.inMemoryCache = new MemoryStorage();
@@ -8642,7 +8674,7 @@ var AsyncMemoryStorage = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/crypto/CryptoOps.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/crypto/CryptoOps.mjs
 var CryptoOps = class _CryptoOps {
   constructor(logger, performanceClient, skipValidateSubtleCrypto) {
     this.logger = logger;
@@ -8795,7 +8827,7 @@ function getSortedObjectString(obj) {
   return JSON.stringify(obj, Object.keys(obj).sort());
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/CookieStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/CookieStorage.mjs
 var COOKIE_LIFE_MULTIPLIER = 24 * 60 * 60 * 1e3;
 var SameSiteOptions = {
   Lax: "Lax",
@@ -8860,7 +8892,7 @@ function getCookieExpirationTime(cookieLifeDays) {
   return expr.toUTCString();
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/CacheHelpers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/CacheHelpers.mjs
 function getAccountKeys(storage, schemaVersion) {
   const accountKeys = storage.getItem(getAccountKeysCacheKey(schemaVersion));
   if (accountKeys) {
@@ -8883,12 +8915,12 @@ function getTokenKeys(clientId, storage, schemaVersion) {
   };
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/EncryptedData.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/EncryptedData.mjs
 function isEncrypted(data) {
   return data.hasOwnProperty("id") && data.hasOwnProperty("nonce") && data.hasOwnProperty("data");
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/LocalStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/LocalStorage.mjs
 var ENCRYPTION_KEY = "msal.cache.encryption";
 var BROADCAST_CHANNEL_NAME = "msal.broadcast.cache";
 var LocalStorage = class {
@@ -9155,7 +9187,7 @@ var LocalStorage = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/SessionStorage.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/SessionStorage.mjs
 var SessionStorage = class {
   constructor() {
     if (!window.sessionStorage) {
@@ -9190,7 +9222,7 @@ var SessionStorage = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/event/EventType.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/event/EventType.mjs
 var EventType = {
   INITIALIZE_START: "msal:initializeStart",
   INITIALIZE_END: "msal:initializeEnd",
@@ -9221,7 +9253,7 @@ var EventType = {
   BROKER_CONNECTION_ESTABLISHED: "msal:brokerConnectionEstablished"
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/utils/Helpers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/utils/Helpers.mjs
 function removeElementFromArray(array, element2) {
   const index = array.indexOf(element2);
   if (index > -1) {
@@ -9229,7 +9261,7 @@ function removeElementFromArray(array, element2) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/BrowserCacheManager.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/BrowserCacheManager.mjs
 var BrowserCacheManager = class extends CacheManager {
   constructor(clientId, cacheConfig, cryptoImpl, logger, performanceClient, eventHandler, staticAuthorityOptions) {
     super(clientId, cryptoImpl, logger, performanceClient, staticAuthorityOptions);
@@ -10498,7 +10530,7 @@ var DEFAULT_BROWSER_CACHE_MANAGER = (clientId, logger, performanceClient, eventH
   return new BrowserCacheManager(clientId, cacheOptions, DEFAULT_CRYPTO_IMPLEMENTATION, logger, performanceClient, eventHandler);
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/AccountManager.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/AccountManager.mjs
 function getAllAccounts(logger, browserStorage, isInBrowser, correlationId, accountFilter) {
   logger.verbose("getAllAccounts called");
   return isInBrowser ? browserStorage.getAllAccounts(accountFilter || {}, correlationId) : [];
@@ -10574,7 +10606,7 @@ function getActiveAccount(browserStorage, correlationId) {
   return browserStorage.getActiveAccount(correlationId);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/event/EventHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/event/EventHandler.mjs
 var BROADCAST_CHANNEL_NAME2 = "msal.broadcast.event";
 var EventHandler = class {
   constructor(logger) {
@@ -10672,7 +10704,7 @@ var EventHandler = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/BaseInteractionClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/BaseInteractionClient.mjs
 var BaseInteractionClient = class {
   constructor(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, performanceClient, platformAuthProvider, correlationId) {
     this.config = config2;
@@ -10767,7 +10799,7 @@ var BaseInteractionClient = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/request/RequestHelpers.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/request/RequestHelpers.mjs
 async function initializeBaseRequest(request, config2, performanceClient, logger) {
   performanceClient.addQueueMeasurement(PerformanceEvents.InitializeBaseRequest, request.correlationId);
   const authority = request.authority || config2.auth.authority;
@@ -10825,7 +10857,7 @@ function validateRequestMethod(interactionRequest, protocolMode) {
   return httpMethod;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/StandardInteractionClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/StandardInteractionClient.mjs
 var StandardInteractionClient = class extends BaseInteractionClient {
   /**
    * Initializer for the logout request.
@@ -10999,7 +11031,7 @@ var StandardInteractionClient = class extends BaseInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/utils/BrowserProtocolUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/utils/BrowserProtocolUtils.mjs
 function extractBrowserRequestState(browserCrypto, state) {
   if (!state) {
     return null;
@@ -11012,7 +11044,7 @@ function extractBrowserRequestState(browserCrypto, state) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/response/ResponseHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/response/ResponseHandler.mjs
 function deserializeResponse(responseString, responseLocation, logger) {
   const serverParams = UrlUtils_exports.getDeserializedResponse(responseString);
   if (!serverParams) {
@@ -11040,7 +11072,7 @@ function validateInteractionType(response, browserCrypto, interactionType) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_handler/InteractionHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_handler/InteractionHandler.mjs
 var InteractionHandler = class {
   constructor(authCodeModule, storageImpl, authCodeRequest, logger, performanceClient) {
     this.authModule = authCodeModule;
@@ -11116,12 +11148,12 @@ var InteractionHandler = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/NativeAuthErrorCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/NativeAuthErrorCodes.mjs
 var contentError = "ContentError";
 var pageException = "PageException";
 var userSwitch = "user_switch";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/broker/nativeBroker/NativeStatusCodes.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/broker/nativeBroker/NativeStatusCodes.mjs
 var USER_INTERACTION_REQUIRED = "USER_INTERACTION_REQUIRED";
 var USER_CANCEL = "USER_CANCEL";
 var NO_NETWORK = "NO_NETWORK";
@@ -11129,7 +11161,7 @@ var DISABLED = "DISABLED";
 var ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
 var UX_NOT_ALLOWED = "UX_NOT_ALLOWED";
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/error/NativeAuthError.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/error/NativeAuthError.mjs
 var INVALID_METHOD_ERROR = -2147186943;
 var NativeAuthErrorMessages = {
   [userSwitch]: "User attempted to switch accounts in the native broker, which is not allowed. All new accounts must sign-in through the standard web flow first, please try again."
@@ -11175,7 +11207,7 @@ function createNativeAuthError(code, description, ext) {
   return new NativeAuthError(code, NativeAuthErrorMessages[code] || description, ext);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/SilentCacheClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/SilentCacheClient.mjs
 var SilentCacheClient = class extends StandardInteractionClient {
   /**
    * Returns unexpired tokens from the cache, if available
@@ -11217,7 +11249,7 @@ var SilentCacheClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/PlatformAuthInteractionClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/PlatformAuthInteractionClient.mjs
 var PlatformAuthInteractionClient = class extends BaseInteractionClient {
   constructor(config2, browserStorage, browserCrypto, logger, eventHandler, navigationClient, apiId, performanceClient, provider, accountId, nativeStorageImpl, correlationId) {
     super(config2, browserStorage, browserCrypto, logger, eventHandler, navigationClient, performanceClient, provider, correlationId);
@@ -11774,7 +11806,7 @@ var PlatformAuthInteractionClient = class extends BaseInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/protocol/Authorize.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/protocol/Authorize.mjs
 var clientDataAccountTypeMapping = /* @__PURE__ */ new Map([
   ["e", "AAD"],
   ["m", "MSA"]
@@ -11946,7 +11978,7 @@ async function handleResponseEAR(request, response, apiId, config2, authority, b
   return await invokeAsync(responseHandler.handleServerTokenResponse.bind(responseHandler), PerformanceEvents.HandleServerTokenResponse, logger, performanceClient, request.correlationId)(decryptedData, authority, TimeUtils_exports.nowSeconds(), request, apiId, additionalData, void 0, void 0, void 0, void 0);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/crypto/PkceGenerator.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/crypto/PkceGenerator.mjs
 var RANDOM_BYTE_ARR_LENGTH = 32;
 async function generatePkceCodes(performanceClient, logger, correlationId) {
   performanceClient.addQueueMeasurement(PerformanceEvents.GeneratePkceCodes, correlationId);
@@ -11977,7 +12009,7 @@ async function generateCodeChallengeFromVerifier(pkceCodeVerifier, performanceCl
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthExtensionHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthExtensionHandler.mjs
 var PlatformAuthExtensionHandler = class _PlatformAuthExtensionHandler {
   constructor(logger, handshakeTimeoutMs, performanceClient, extensionId) {
     this.logger = logger;
@@ -12194,7 +12226,7 @@ var PlatformAuthExtensionHandler = class _PlatformAuthExtensionHandler {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthDOMHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthDOMHandler.mjs
 var PlatformAuthDOMHandler = class _PlatformAuthDOMHandler {
   constructor(logger, performanceClient, correlationId) {
     this.logger = logger;
@@ -12326,7 +12358,7 @@ var PlatformAuthDOMHandler = class _PlatformAuthDOMHandler {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthProvider.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/broker/nativeBroker/PlatformAuthProvider.mjs
 async function getPlatformAuthProvider(logger, performanceClient, correlationId, nativeBrokerHandshakeTimeout, enablePlatformBrokerDOMSupport) {
   logger.trace("getPlatformAuthProvider called", correlationId);
   logger.trace("Has client allowed platform auth via DOM API: " + enablePlatformBrokerDOMSupport);
@@ -12371,7 +12403,7 @@ function isPlatformAuthAllowed(config2, logger, platformAuthProvider, authentica
   return true;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/PopupClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/PopupClient.mjs
 var PopupClient = class extends StandardInteractionClient {
   constructor(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, performanceClient, nativeStorageImpl, platformAuthHandler, correlationId) {
     super(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, performanceClient, platformAuthHandler, correlationId);
@@ -12784,7 +12816,7 @@ var PopupClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/RedirectClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/RedirectClient.mjs
 function getNavigationType() {
   if (typeof window === "undefined" || typeof window.performance === "undefined" || typeof window.performance.getEntriesByType !== "function") {
     return void 0;
@@ -13153,7 +13185,7 @@ var RedirectClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_handler/SilentHandler.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_handler/SilentHandler.mjs
 async function initiateCodeRequest(requestUrl, performanceClient, logger, correlationId, navigateFrameWait) {
   performanceClient.addQueueMeasurement(PerformanceEvents.SilentHandlerInitiateAuthRequest, correlationId);
   if (!requestUrl) {
@@ -13268,7 +13300,7 @@ function removeHiddenIframe(iframe) {
   }
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/SilentIframeClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/SilentIframeClient.mjs
 var SilentIframeClient = class extends StandardInteractionClient {
   constructor(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, apiId, performanceClient, nativeStorageImpl, platformAuthProvider, correlationId) {
     super(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, performanceClient, platformAuthProvider, correlationId);
@@ -13443,7 +13475,7 @@ var SilentIframeClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/SilentRefreshClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/SilentRefreshClient.mjs
 var SilentRefreshClient = class extends StandardInteractionClient {
   /**
    * Exchanges the refresh token for new tokens
@@ -13500,7 +13532,7 @@ var SilentRefreshClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/cache/TokenCache.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/cache/TokenCache.mjs
 var TokenCache = class {
   constructor(configuration, storage, logger, cryptoObj, performanceClient) {
     this.isBrowserEnvironment = typeof window !== "undefined";
@@ -13713,7 +13745,7 @@ var TokenCache = class {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/HybridSpaAuthorizationCodeClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/HybridSpaAuthorizationCodeClient.mjs
 var HybridSpaAuthorizationCodeClient = class extends AuthorizationCodeClient {
   constructor(config2) {
     super(config2);
@@ -13721,7 +13753,7 @@ var HybridSpaAuthorizationCodeClient = class extends AuthorizationCodeClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/interaction_client/SilentAuthCodeClient.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/interaction_client/SilentAuthCodeClient.mjs
 var SilentAuthCodeClient = class extends StandardInteractionClient {
   constructor(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, apiId, performanceClient, platformAuthProvider, correlationId) {
     super(config2, storageImpl, browserCrypto, logger, eventHandler, navigationClient, performanceClient, platformAuthProvider, correlationId);
@@ -13774,7 +13806,7 @@ var SilentAuthCodeClient = class extends StandardInteractionClient {
   }
 };
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/utils/MsalFrameStatsUtils.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/utils/MsalFrameStatsUtils.mjs
 function collectInstanceStats(currentClientId, performanceEvent, logger) {
   const frameInstances = (
     // @ts-ignore
@@ -13791,7 +13823,7 @@ function collectInstanceStats(currentClientId, performanceEvent, logger) {
   });
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/controllers/StandardController.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/controllers/StandardController.mjs
 function preflightCheck2(initialized, performanceEvent, account) {
   try {
     preflightCheck(initialized);
@@ -15143,14 +15175,14 @@ function checkIfRefreshTokenErrorCanBeResolvedSilently(refreshTokenError, cacheL
   return isSilentlyResolvable && tryIframeRenewal;
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/controllers/ControllerFactory.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/controllers/ControllerFactory.mjs
 async function createV3Controller(config2, request) {
   const standard = new StandardOperatingContext(config2);
   await standard.initialize();
   return StandardController.createController(standard, request);
 }
 
-// C:/Users/mitdw/AppData/Local/Temp/drchrono-follow-up-cloud-build/node_modules/@azure/msal-browser/dist/app/PublicClientApplication.mjs
+// C:/Users/mitdw/AppData/Local/Temp/follow-up-onedrive-build-20261112/node_modules/@azure/msal-browser/dist/app/PublicClientApplication.mjs
 var PublicClientApplication = class _PublicClientApplication {
   /**
    * Creates StandardController and passes it to the PublicClientApplication
@@ -15496,13 +15528,15 @@ async function authDeadline(promise) {
     clearTimeout(timer);
   }
 }
-async function timedFetch(url, options = {}, seconds = 45) {
+async function timedFetch(url, options = {}, seconds = 45, stage = "connection") {
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), seconds * 1e3);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
-    const e = new Error(error.name === "AbortError" ? `OneDrive did not respond within ${seconds} seconds. Keep Follow Up open to retry.` : "Cannot reach OneDrive. Check the internet connection and tap Refresh.");
+    const operation = stage === "download" ? "OneDrive file download" : "OneDrive connection";
+    const e = new Error(error.name === "AbortError" ? `${operation} timed out. Tap Retry connection.` : `${operation} failed. Tap Retry connection.`);
     e.deliveryError = true;
+    e.stage = stage;
     throw e;
   } finally {
     clearTimeout(timeout);
@@ -15551,7 +15585,7 @@ var OneDrive = class {
     if (!path.startsWith("/")) throw new Error("Invalid OneDrive path");
     if (this.retryAfter > Date.now()) throw new Error("OneDrive delivery will retry shortly.");
     const token = await this.token();
-    const r = await timedFetch(BASE + path, { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
+    const r = await timedFetch(BASE + path, { cache: "no-store", ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } });
     if (r.status === 429) this.retryAfter = Date.now() + Math.max(30, Number(r.headers.get("Retry-After")) || 60) * 1e3;
     if (!r.ok) {
       let code = "";
@@ -15590,12 +15624,24 @@ var OneDrive = class {
     return items2;
   }
   async download(target2, path) {
-    const item = await this.request(this.item(target2, path));
-    const url = item["@microsoft.graph.downloadUrl"];
-    if (!url || new URL(url).protocol !== "https:") throw new Error("Document is not available to download.");
-    const r = await timedFetch(url, { credentials: "omit" });
-    if (!r.ok) throw new Error("Download unavailable");
-    return r;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const item = await this.request(this.item(target2, path));
+      const url = item["@microsoft.graph.downloadUrl"];
+      if (!url || new URL(url).protocol !== "https:") throw new Error("OneDrive did not provide a file download link. Choose the app folder again.");
+      try {
+        const r = await timedFetch(url, { credentials: "omit", cache: "no-store" }, 45, "download");
+        if (!r.ok) {
+          const e = new Error(`OneDrive file download failed (${r.status}). Tap Retry connection.`);
+          e.status = r.status;
+          e.stage = "download";
+          throw e;
+        }
+        return r;
+      } catch (e) {
+        if (attempt === 0 && e.stage === "download" && (!e.status || [401, 403].includes(e.status))) continue;
+        throw e;
+      }
+    }
   }
   async ensureFolder(target2, folder) {
     try {
@@ -15622,6 +15668,7 @@ var OneDrive = class {
 // src/cloud.js
 var config = await (await fetch("./config.json", { cache: "no-store" })).json();
 var drive = new OneDrive(config);
+window.followUpCreatorKey = () => `follow-up-creator-${config.environment}-${drive.auth?.getActiveAccount()?.homeAccountId || "unconnected"}`;
 var target = null;
 var catalog = null;
 var key2 = "follow-up-" + config.environment + "-folder";
@@ -15637,8 +15684,11 @@ sign2.textContent = "Sign in to OneDrive";
 var choose = document.createElement("button");
 choose.textContent = "Choose app folder";
 choose.className = "secondary";
+var retry = document.createElement("button");
+retry.textContent = "Retry connection";
+retry.hidden = true;
 var folders = document.createElement("div");
-panel.append(title, message, sign2, choose, folders);
+panel.append(title, message, sign2, choose, retry, folders);
 document.querySelector("main").prepend(panel);
 sign2.onclick = () => drive.signIn().catch((e) => message.textContent = e.message);
 if (!config.clientId) {
@@ -15679,9 +15729,25 @@ async function browseFolder(parent = null, trail = []) {
   }
 }
 choose.onclick = () => browseFolder();
-var ready = drive.init().then(() => {
-  target = JSON.parse(localStorage.getItem(key2) || "null");
-});
+var initFailed = false;
+function initialize() {
+  const startup = drive.init().then(() => {
+    target = JSON.parse(localStorage.getItem(key2) || "null");
+    initFailed = false;
+  }).catch((e) => {
+    initFailed = true;
+    throw e;
+  });
+  startup.catch(() => {
+  });
+  return startup;
+}
+var ready = initialize();
+retry.onclick = () => {
+  retry.disabled = true;
+  if (initFailed) ready = initialize();
+  document.getElementById("refresh").click();
+};
 async function readCatalog() {
   await ready;
   if (!target) throw Error("Sign in and choose your app folder above.");
@@ -15691,7 +15757,7 @@ async function readCatalog() {
   return catalog;
 }
 window.followUpCloud = async (path, method = "GET", body) => {
-  await ready;
+  if (path !== "/status") await ready;
   if (path === "/logout") {
     localStorage.removeItem(key2);
     drive.auth?.clearCache();
@@ -15700,14 +15766,25 @@ window.followUpCloud = async (path, method = "GET", body) => {
   }
   if (method === "GET") {
     if (path === "/status") {
-      await readCatalog();
-      return { development: config.environment !== "production", local: false, writeback_enabled: config.environment === "production", last_sync: catalog.published_at, saved_activity_count: catalog.items.length };
+      try {
+        await readCatalog();
+        retry.hidden = true;
+        return { development: config.environment !== "production", local: false, writeback_enabled: config.environment === "production", last_sync: catalog.published_at, saved_activity_count: catalog.items.length };
+      } catch (e) {
+        panel.hidden = false;
+        retry.hidden = false;
+        message.textContent = e.message;
+        throw e;
+      } finally {
+        retry.disabled = false;
+      }
     }
     if (!catalog) await readCatalog();
     if (path === "/fields") return { fields: catalog.fields };
     if (path.startsWith("/activities")) {
       const p = new URL(path, "https://local.invalid").searchParams, selected2 = p.getAll("field_id").map(Number), status = p.get("status"), term = (p.get("search") || "").toLowerCase();
-      let items2 = catalog.items.filter((r) => (!selected2.length || selected2.includes(r.field_id)) && (status === "all" || (status === "open" ? r.status === "open" : r.status !== "open")) && (!term || (r.patient_name + " " + r.activity).toLowerCase().includes(term)));
+      const creator = p.get("creator") || "Everyone";
+      let items2 = catalog.items.filter((r) => (creator === "Everyone" || r.source_type !== "personal" || (r.creator_name || "") === (creator === "Unassigned" ? "" : creator)) && (!selected2.length || selected2.includes(r.field_id)) && (status === "all" || (status === "open" ? r.status === "open" : r.status !== "open")) && (!term || (r.patient_name + " " + r.activity).toLowerCase().includes(term)));
       const sort = p.get("sort") || "created_desc", field = sort.startsWith("dos") ? "date_of_service" : sort.startsWith("updated") ? "updated_at" : "created_at", direction = sort.endsWith("asc") ? 1 : -1;
       items2.sort((a, b) => direction * String(a[field] || "").localeCompare(String(b[field] || "")) || a.appointment_id.localeCompare(b.appointment_id));
       const total2 = items2.length, offset = Number(p.get("offset") || 0);
@@ -15746,128 +15823,368 @@ await Promise.resolve().then(() => (init_ui(), ui_exports));
 /*! Bundled license information:
 
 @azure/msal-common/dist/utils/Constants.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/AuthErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/AuthError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/ClientAuthErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/ClientAuthError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/crypto/ICrypto.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/logger/Logger.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/packageMetadata.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/AuthorityOptions.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/ClientConfigurationErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/ClientConfigurationError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/StringUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/request/ScopeSet.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/account/ClientInfo.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/account/AccountInfo.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/AuthorityType.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/account/TokenClaims.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/ProtocolMode.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/cache/entities/AccountEntity.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/account/AuthToken.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/UrlUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/url/UrlString.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/AuthorityMetadata.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/CacheErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/CacheError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/cache/CacheManager.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/telemetry/performance/PerformanceEvent.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/telemetry/performance/StubPerformanceClient.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/config/ClientConfiguration.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/account/CcsCredential.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/constants/AADServerParamKeys.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/request/RequestParameterBuilder.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/OpenIdConfigResponse.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/CloudInstanceDiscoveryResponse.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/CloudInstanceDiscoveryErrorResponse.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/FunctionWrappers.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/RegionDiscovery.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/TimeUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/cache/utils/CacheHelpers.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/Authority.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/authority/AuthorityFactory.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/ServerError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/network/RequestThumbprint.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/network/ThrottlingUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/NetworkError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/client/BaseClient.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/InteractionRequiredAuthErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/InteractionRequiredAuthError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/ProtocolUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/crypto/PopTokenGenerator.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/cache/persistence/TokenCacheContext.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/response/ResponseHandler.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/utils/ClientAssertionUtils.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/client/AuthorizationCodeClient.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/client/RefreshTokenClient.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/client/SilentFlowClient.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/network/INetworkModule.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/protocol/Authorize.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/telemetry/server/ServerTelemetryManager.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/JoseHeaderErrorCodes.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/error/JoseHeaderError.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/crypto/JoseHeader.mjs:
+  (*! @azure/msal-common v15.17.0 2026-03-18 *)
+
 @azure/msal-common/dist/index-browser.mjs:
   (*! @azure/msal-common v15.17.0 2026-03-18 *)
 
 @azure/msal-browser/dist/error/BrowserAuthErrorCodes.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/error/BrowserAuthError.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/utils/BrowserConstants.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/encode/Base64Encode.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/encode/Base64Decode.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/crypto/BrowserCrypto.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/error/BrowserConfigurationAuthErrorCodes.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/error/BrowserConfigurationAuthError.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/utils/BrowserUtils.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/navigation/NavigationClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/network/FetchClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/config/Configuration.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/packageMetadata.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/CacheKeys.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/operatingcontext/BaseOperatingContext.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/operatingcontext/StandardOperatingContext.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/DatabaseStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/MemoryStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/AsyncMemoryStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/crypto/CryptoOps.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/CookieStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/CacheHelpers.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/EncryptedData.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/LocalStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/SessionStorage.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/event/EventType.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/utils/Helpers.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/BrowserCacheManager.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/AccountManager.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/event/EventHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/BaseInteractionClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/request/RequestHelpers.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/StandardInteractionClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/utils/BrowserProtocolUtils.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/response/ResponseHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_handler/InteractionHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/error/NativeAuthErrorCodes.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/broker/nativeBroker/NativeStatusCodes.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/error/NativeAuthError.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/SilentCacheClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/PlatformAuthInteractionClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/protocol/Authorize.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/crypto/PkceGenerator.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/broker/nativeBroker/PlatformAuthExtensionHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/broker/nativeBroker/PlatformAuthDOMHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/broker/nativeBroker/PlatformAuthProvider.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/PopupClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/RedirectClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_handler/SilentHandler.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/SilentIframeClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/SilentRefreshClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/cache/TokenCache.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/HybridSpaAuthorizationCodeClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/interaction_client/SilentAuthCodeClient.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/utils/MsalFrameStatsUtils.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/controllers/StandardController.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/controllers/ControllerFactory.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/app/PublicClientApplication.mjs:
+  (*! @azure/msal-browser v4.30.0 2026-03-18 *)
+
 @azure/msal-browser/dist/index.mjs:
   (*! @azure/msal-browser v4.30.0 2026-03-18 *)
 */
