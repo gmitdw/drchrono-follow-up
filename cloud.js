@@ -15679,6 +15679,37 @@ var OneDrive = class {
     }
     return [...matches.values()][0];
   }
+  async streamDownload(target2, item, path) {
+    if (!item.id) return null;
+    const drive2 = item.parentReference?.driveId || target2.drive;
+    const address = "https://graph.microsoft.com/beta/drives/" + encodeURIComponent(drive2) + "/items/" + encodeURIComponent(item.id) + "/contentStream";
+    const token = await this.token();
+    const response = await timedFetch(address, { cache: "no-store", credentials: "omit", redirect: "error", headers: { Authorization: `Bearer ${token}` } }, 45, "connection");
+    if (response.ok) {
+      let data;
+      try {
+        data = await response.clone().json();
+      } catch {
+      }
+      const catalog2 = path.endsWith("/catalog.json");
+      const valid = catalog2 ? data?.version === 1 && data.environment === this.config.environment && Array.isArray(data.items) && Array.isArray(data.fields) : typeof data?.ok === "boolean";
+      if (!valid) {
+        const e2 = new Error("OneDrive did not return a valid follow-up file. Tap Retry connection.");
+        e2.deliveryError = true;
+        e2.stage = "connection";
+        throw e2;
+      }
+      return response;
+    }
+    if ([400, 404, 405, 501].includes(response.status)) return null;
+    if (response.status === 429) this.retryAfter = Date.now() + Math.max(30, Number(response.headers.get("Retry-After")) || 60) * 1e3;
+    const e = new Error(response.status === 401 ? "Sign in again to load your follow-ups." : `OneDrive direct read failed (${response.status}). Tap Retry connection.`);
+    e.status = response.status;
+    e.authRequired = response.status === 401;
+    e.deliveryError = true;
+    e.stage = "connection";
+    throw e;
+  }
   async download(target2, path) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const item = await this.request(this.item(target2, path));
@@ -15694,7 +15725,11 @@ var OneDrive = class {
         }
         return r;
       } catch (e) {
-        if (attempt === 0 && e.stage === "download" && (!e.status || [401, 403].includes(e.status))) continue;
+        if (attempt === 0 && e.stage === "download" && (!e.status || [401, 403].includes(e.status))) {
+          const streamed = await this.streamDownload(target2, item, path);
+          if (streamed) return streamed;
+          continue;
+        }
         throw e;
       }
     }
